@@ -1,6 +1,6 @@
 import os, sys, re
 
-def userInput():
+def shell():
     
     while True:
         
@@ -17,34 +17,65 @@ def userInput():
         if itemSplit[0] == "exit":
             os.write(2, "Closing system".encode())
             sys.exit(1)
+
         if itemSplit[0] == "cd":
             try:
                 os.chdir(itemSplit[1])
             except FileNotFoundError:
                 os.write(2, "Directory not found".encode())
             continue
+
         #Forking
         else:
+
             rc = os.fork()
             if rc < 0:
-                os.write(2, ("fork failed, returning %d\n" % rc).encode())
+                os.write(2, ("Fork failed, returning %d\n" % rc).encode())
                 sys.exit(1)
+
             elif rc == 0:                   
                 if '|' in userInput:
                     cmnd1, cmnd2 = splitPipe(userInput)
 
                     #Reading and Writing pipe
-                    rPipe, wPipe = os.pipe()
+                    pr, pw = os.pipe()
+                    for f in (pr, pw):
+                        os.set_inheritable(f, True)
+
+                    #Forking child
+                    pipeFork = os.fork()
+                    if pipeFork < 0:
+                        print("fork failed, returning %d\n" % pipeFork, file=sys.stderr)
+                        sys.exit(1)
+
+                    elif pipeFork == 0:                   #  child - will write to pipe
+                        os.close(1)                 # redirect child's stdout
+                        os.dup(pw)
+                        os.set_inheritable(1, True)
+                        for fd in (pr, pw):
+                            os.close(fd)
+                        path(cmnd1)
+
+                    else:#parent (forked ok)
+                        os.close(0)
+                        os.dup(pr)
+                        os.set_inheritable(0, True)
+                        for fd in (pw, pr):
+                            os.close(fd)
+                        path(cmnd2)
+
                 elif '<' in userInput or '>' in userInput:
                     cmnd0, outFile, inFile = parse(userInput)
+                    
                 #if '&' at the end of the command then it should be set to run in the back 
                 elif '&' in userInput[-1]:
                     exit()
+
                 else:
                     exit()
             #wait
             else:
-                exit()
+                waitingP = os.wait()
                     
 #Splitting the pipe commands
 def splitPipe(userInput):
@@ -71,10 +102,22 @@ def parse(cmdString):
             outFile = outFile.strip()
             inFile = inFile.strip()
 
-        return cmd.split(), outFile, inFile
+        return cmd.split(), outFile, inFile)
+        
+def path(cmd):
 
+    for dir in re.split(":", os.environ['PATH']): # try each directory in path
+        program = "%s/%s" % (dir, args[0])
+        try:
+            os.execve(program, args, os.environ) # try to exec program
+        except FileNotFoundError:             # ...expected
+            pass
+        
+        os.write(2, ("Child:    Error: Could not exec %s\n" % args[0]).encode())
+        sys.exit(1)                 # terminate with error
+                            
 def main():
-    userInput()
+    shell()
 
 if __name__ == "__main__":
     main()
