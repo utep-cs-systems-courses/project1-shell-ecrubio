@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 import os, sys, re
 
 def shell():
@@ -64,15 +66,19 @@ def shell():
                             os.close(fd)
                         path(cmnd2)
 
-                elif '<' in userInput or '>' in userInput:
-                    cmnd0, outFile, inFile = parse(userInput)
-                    
+                if '>' in userInput:
+                    redirect('>', userInput)
+
+                elif '<' in userInput:
+                    redirect('<', userInput)
+
                 #if '&' at the end of the command then it should be set to run in the back 
                 elif '&' in userInput[-1]:
-                    exit()
-
+                    path(cmnd1)
+                    path(cmnd2)
+                    
                 else:
-                    exit()
+                    waitingP = os.wait()
             #wait
             else:
                 waitingP = os.wait()
@@ -81,28 +87,6 @@ def shell():
 def splitPipe(userInput):
     pipe = userInput.split('|')
     return pipe[0].strip(), pipe[1].strip()
-
-#Code from Professor(TEAMS code)
-def parse(cmdString):
-        outFile = None
-        inFile = None
-        cmd = ''
-
-        cmdString = re.sub(' +', ' ', cmdString)
-        if '>' in cmdString:
-            [cmd, outFile] = cmdString.split('>',1)
-            outFile = outFile.strip()
-
-        if '<' in cmd:
-            [cmd, inFile] = cmd.split('<', 1)
-            inFile = inFile.strip()
-
-        elif outFile != None and '<' in outFile:
-            [outFile, inFile] = outFile.split('<', 1)
-            outFile = outFile.strip()
-            inFile = inFile.strip()
-
-        return cmd.split(), outFile, inFile)
         
 def path(cmd):
 
@@ -115,6 +99,19 @@ def path(cmd):
         
         os.write(2, ("Child:    Error: Could not exec %s\n" % args[0]).encode())
         sys.exit(1)                 # terminate with error
+
+def redirect(direction, userInput):
+    userInput = userInput.split(direction)
+    if direction == '>':
+        os.close(1)
+        sys.stdout = open(userInput[1].strip(), "w")
+        os.set_inheritable(1, True)
+        path(userInput[0].split())
+    else:
+        os.close(0)
+        sys.stdin = open(userInput[1].strip(), 'r')
+        os.set_inheritable(0, True)
+        path(userInput[0].split())
                             
 def main():
     shell()
