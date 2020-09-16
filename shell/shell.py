@@ -9,7 +9,7 @@ def shell():
         if 'PS1' in os.environ:
             uInput = os.environ['PS1']
         else:
-            uInput = os.environ['$ ']
+            uInput = '$ '
 
         #The user input is taken then split by space
         userInput = input(uInput)
@@ -47,7 +47,7 @@ def shell():
                     #Forking child
                     pipeFork = os.fork()
                     if pipeFork < 0:
-                        print("fork failed, returning %d\n" % pipeFork, file=sys.stderr)
+                        os.write("Fork failed, returning %d\n" % pipeFork, file=sys.stderr)
                         sys.exit(1)
 
                     elif pipeFork == 0:                   #  child - will write to pipe
