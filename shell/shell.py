@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#!/usr/bin/env python3
 
 import os, sys, re
 
@@ -18,7 +18,7 @@ def redirect(cmnd):
         cmnd.remove('<')
 
     for dir in re.split(":", os.environ['PATH']):
-        prog = "%s%s" % (dir, cmnd[0])
+        prog = "%s/%s" % (dir, cmnd[0])
         try:
             os.execve(prog, cmnd, os.environ)
         except FileNotFoundError:
@@ -37,7 +37,7 @@ def execute(cmnd):
             pass
     else:
         for dir in re.split(":", os.environ['PATH']):
-            prog = "%s%s" % (dir, cmnd[0])
+            prog = "%s/%s" % (dir, cmnd[0])
             try:
                 os.execve(prog, cmnd, os.environ)
             except FileNotFoundError:
