@@ -2,116 +2,143 @@
 
 import os, sys, re
 
-def shell():
-    
-    while True:
-        
-        if 'PS1' in os.environ:
-            uInput = os.environ['PS1']
-        else:
-            uInput = '$ '
-
-        #The user input is taken then split by space
-        userInput = input(uInput)
-        itemSplit = userInput.split(' ')
-
-        #Depending on the user input then it will exit or change directories
-        if itemSplit[0] == "exit":
-            os.write(2, "Closing system".encode())
-            sys.exit(1)
-
-        if itemSplit[0] == "cd":
-            try:
-                os.chdir(itemSplit[1])
-            except FileNotFoundError:
-                os.write(2, "Directory not found".encode())
-            continue
-
-        #Forking
-        else:
-
-            rc = os.fork()
-            if rc < 0:
-                os.write(2, ("Fork failed, returning %d\n" % rc).encode())
-                sys.exit(1)
-
-            elif rc == 0:                   
-                if '|' in userInput:
-                    cmnd1, cmnd2 = splitPipe(userInput)
-
-                    #Reading and Writing pipe
-                    pr, pw = os.pipe()
-                    for f in (pr, pw):
-                        os.set_inheritable(f, True)
-
-                    #Forking child
-                    pipeFork = os.fork()
-                    if pipeFork < 0:
-                        os.write("Fork failed, returning %d\n" % pipeFork, file=sys.stderr)
-                        sys.exit(1)
-
-                    elif pipeFork == 0:                   #  child - will write to pipe
-                        os.close(1)                 # redirect child's stdout
-                        os.dup(pw)
-                        os.set_inheritable(1, True)
-                        for fd in (pr, pw):
-                            os.close(fd)
-                        path(cmnd1)
-
-                    else:#parent (forked ok)
-                        os.close(0)
-                        os.dup(pr)
-                        os.set_inheritable(0, True)
-                        for fd in (pw, pr):
-                            os.close(fd)
-                        path(cmnd2)
-
-                if '>' in userInput:
-                    redirect('>', userInput)
-
-                elif '<' in userInput:
-                    redirect('<', userInput)
-
-                #if '&' at the end of the command then it should be set to run in the back 
-                elif '&' in userInput[-1]:
-                    path(cmnd1)
-                    path(cmnd2)
-                    
-                else:
-                    waitingP = os.wait()
-            #wait
-            else:
-                waitingP = os.wait()
-                    
-#Splitting the pipe commands
-def splitPipe(userInput):
-    pipe = userInput.split('|')
-    return pipe[0].strip(), pipe[1].strip()
-        
-def path(cmd):
-
-    for dir in re.split(":", os.environ['PATH']): # try each directory in path
-        program = "%s/%s" % (dir, args[0])
-        try:
-            os.execve(program, args, os.environ) # try to exec program
-        except FileNotFoundError:             # ...expected
-            pass
-        
-        os.write(2, ("Child:    Error: Could not exec %s\n" % args[0]).encode())
-        sys.exit(1)                 # terminate with error
-
-def redirect(direction, userInput):
-    userInput = userInput.split(direction)
-    if direction == '>':
+def redirect(cmnd):
+    if '>' in cmnd:
         os.close(1)
-        sys.stdout = open(userInput[1].strip(), "w")
+        os.open(cmnd[cmnd.index('>') + 1], os.O_CREAT | os.O_WRONLY)
         os.set_inheritable(1, True)
-        path(userInput[0].split())
+        cmnd.remove(cmnd[cmnd.index('>') + 1])
+        cmnd.remove('>')
+
     else:
         os.close(0)
-        sys.stdin = open(userInput[1].strip(), 'r')
+        os.open(cmnd[cmnd.index('<') + 1], os.O_RDONLY)
         os.set_inheritable(0, True)
-        path(userInput[0].split())
+        cmnd.remove(cmnd[cmnd.index('<') +1])
+        cmnd.remove('<')
+
+    for dir in re.split(":", os.environ['PATH']):
+        prog = "%s%s" % (dir, cmnd[0])
+        try:
+            os.execve(prog, cmnd, os.environ)
+        except FileNotFoundError:
+            pass
+
+    os.write(2, ("Command not found \n").encode())
+    sys.exit(1)
+
+def execute(cmnd):
+    if '>' in cmnd or '<' in cmnd:
+        redirect(cmnd)
+    elif '/' in cmnd[0]:
+        try:
+            os.execve(cmnd[0], cmnd, os.environ)
+        except FileNotFoundError:
+            pass
+    else:
+        for dir in re.split(":", os.environ['PATH']):
+            prog = "%s%s" % (dir, cmnd[0])
+            try:
+                os.execve(prog, cmnd, os.environ)
+            except FileNotFoundError:
+                pass
+    os.write(2, ("Command not found \n").encode())
+    sys.exit(1)
+
+def piping(cmnd):
+    write = cmnd[0:cmnd.index("|")]
+    read = cmnd[cmnd.index("|") + 1:]
+
+    pr, pw = os.pipe()
+    rc = os.fork()
+
+    #forked failed
+    if rc < 0:
+        os.write(2, ("Fork failed, returning %d\n" % rc).encode())
+        sys.exit(1)
+    elif rc == 0:
+        #close output
+        os.close(1)
+        os.dup(pw)
+        #output to pipe
+        os.set_inheritable(1, True)
+        for fd in (pr, pw):
+            os.close(fd)
+        execute(write)
+        os.write(2, ("Could not exec %s\n" % write[0]).encode())
+        sys.exit(1)
+    else:
+        os.close(0)
+        os.dup(pr)
+        #input to pipe
+        os.set_inheritable(0, True)
+        for fd in (pr, pw):
+            os.close(fd)
+        if "|" in read:
+            piping(read)
+        execute(read)
+        os.write(2, ("Could not exec %s\n" % read[0]).encode())
+        sys.exit(1)
+
+def readCommand(cmnd):
+    if len(cmnd) == 0:
+        return
+    elif cmnd[0] == 'exit':
+        os.write(1, ("Goodbye\n").encode())
+        sys.exit(0)
+
+    elif cmnd[0] == 'cd':
+        try:
+            if len(cmnd) == 1:
+                os.chdir("..")
+            else:
+                os.chdir(cmnd[1])
+        except FileNotFountError:
+            os.write(1, ("The directory " + cmnd[1] + " does not exist.").encode())
+            
+    elif "|" in cmnd:
+        piping(cmnd)
+    else:
+        rc = os.fork()
+        
+        wait = True
+        if "&" in cmnd:
+            cmnd.remove("&")
+            wait = False
+        if rc < 0:
+            os.write(2, ("Fork failed, returning %d\n" % rc).encode())
+            sys.exit(1)
+        #child
+        elif rc == 0:
+            execute(cmnd)
+            sys.exit(0)
+        #parent >
+        else:
+            if wait:
+                childpid = os.wait()
+
+def shell():    
+    while True:
+
+        if 'PS1' in os.environ:
+            os.write(1, os.environ['PS1'].encode())
+        else:
+            os.write(1, ('$ ').encode())
+
+        try:
+            userInput = os.read(0, 10000)
+
+            if len(userInput) == 0:
+                break
+            userInput = userInput.decode().split("\n")
+
+            if not userInput:
+                continue
+            for cmnd in userInput:
+                readCommand(cmnd.split())
+        except EOFError:
+            sys.exit(1)
+            
                             
 def main():
     shell()
